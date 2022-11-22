@@ -1,18 +1,17 @@
-# This is a sample Python script.
+from matplotlib import pyplot as plt
 
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
-
-
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
+import lib
+import librosa
 
 
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    elitses = input('Exeis elitses? ')
-    if elitses != 'oxi':
-        print('ash and teaches')
+######################### Step 2 #####################################
+wavs, y, speakers, fnames = lib.parse_free_digits('digits')
+print('\nData parsing completed.')
+print('---------------------------------------------------------------')
 
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+######################### Step 3 #####################################
+mfccs, delta1, delta2 = lib.extract_features(wavs, window=25, step=10, n_mfcc=13, Fs=16000)
+print('---------------------------------------------------------------')
+
+######################### Step 4 #####################################
+lib.plot_hist(mfccs, ['one', 'nine'], y)
