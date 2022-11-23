@@ -2,10 +2,14 @@ import os
 from glob import glob
 import librosa
 import re
-import matplotlib.colors as mcolors
 import numpy as np
-
+import pandas as pd
+import seaborn as sns
+from sklearn.metrics import f1_score
+from sklearn.model_selection import cross_val_score
+from tqdm import tqdm
 from matplotlib import pyplot as plt
+import time
 
 
 def parse_free_digits(directory):
@@ -32,7 +36,7 @@ def parse_free_digits(directory):
     return wavs, y, speakers, fnames
 
 
-def extract_features(y, window=25, step=10, n_mfcc=13, Fs=16000):
+def extract_features(y, window=25, step=10, n_mfcc=13, Fs=16000, norm=None):
     """Calculates the MFCCS , delta and delta-deltas values
        Args:
            y (np.ndarray): sound sample (nsamples)
@@ -51,14 +55,24 @@ def extract_features(y, window=25, step=10, n_mfcc=13, Fs=16000):
     window = int(window * 16000 / 1000)
     step = int(step * 16000 / 1000)
 
+    mfccs = [librosa.feature.mfcc(y=y, sr=16000, n_mfcc=n_mfcc, n_fft=window, hop_length=step).T for y in
+             tqdm(y, desc="Extracting mfcc features...")]
     for i in range(len(y)):
-        mfccs.append(librosa.feature.mfcc(y=y[i], sr=16000, n_mfcc=n_mfcc, n_fft=window, hop_length=window - step).T)
         delta1.append(librosa.feature.delta(data=mfccs[i], order=1))
         delta2.append(librosa.feature.delta(data=mfccs[i], order=2))
 
     print('\nFeature extraction completed for all the data.')
 
     return mfccs, delta1, delta2
+
+
+def find_indices(list_to_check, item_to_find):
+    # Find the indices of a specific value on a list
+    indices = []
+    for idx, value in enumerate(list_to_check):
+        if value == item_to_find:
+            indices.append(idx)
+    return indices
 
 
 def plot_hist(mfcc, digits, name_list):
@@ -68,14 +82,6 @@ def plot_hist(mfcc, digits, name_list):
            digits (list): list containing digits (str) you want to plot (if you want more than 2 digits it needs changes)
            name_list (list): List containing the names of the files.
        """
-
-    def find_indices(list_to_check, item_to_find):
-        # Find the indices of a specific value on a list
-        indices = []
-        for idx, value in enumerate(list_to_check):
-            if value == item_to_find:
-                indices.append(idx)
-        return indices
 
     first_digit_indeces = find_indices(name_list, digits[0])  # Get indeces for first digit
     second_digit_indeces = find_indices(name_list, digits[1])  # Get indeces for second digit
@@ -120,3 +126,222 @@ def plot_hist(mfcc, digits, name_list):
     plt.legend(loc=4)
     plt.suptitle(f'MFCC Coefficient for digits {digits[0]} and {digits[1]}')
     plt.show()
+
+
+def extract_mfscs(y, window=25, step=10, n_mels=13, Fs=16000, norm=None):
+    """Calculates the MFCCS , delta and delta-deltas values
+           Args:
+               y (np.ndarray): sound sample (nsamples)
+               window (int): window length (in ms)
+               step (int): step (in ms)
+               n_mels (int): number of NFSCS you want to extract
+               Fs (int): Sample freq in Hz
+               norm {None, ‘slaney’, or number} [scalar]
+           Returns:
+               (list) mfscs
+           """
+    window = window * 16000 // 1000
+    step = step * 16000 // 1000
+    mfscs = []  # list to store 13 mfscs values for each file (mfscs values (ndarray))
+
+    mfscs = [librosa.feature.melspectrogram(y=y, sr=16000, n_mels=n_mels, n_fft=window, hop_length=step,
+                                            norm=norm).T for y in tqdm(y, desc="Extracting mfsc features...")]
+
+    return mfscs
+
+
+def corr_matrices(y, digits, n_speakers, name_list, corr=True):
+    """Calculates the MFSCS/MFCCS and the correlation matrices for specified digit/speaker
+               Args:
+                   y (np.ndarray): MFSCS
+                   digits (list): list containing strings for ex. 'nine'
+                   n_speakers (int): number of speakers u want to keep
+                   name_list (list): list containing names of files for ex. 'eight1'
+                   corr (Boolean): True if you want the correlation matrices
+               Returns:
+                   mfscs_1_1 (np.ndarray): containing mfscs matrix for the first digit and first speaker
+                   mfscs_1_2 (np.ndarray): containing mfscs matrix for the first digit and second speaker
+                   mfscs_2_1 (np.ndarray): containing mfscs matrix for the second digit and first speaker
+                   mfscs_2_2 (np.ndarray): containing mfscs matrix for the second digit and second speaker
+               """
+    first_digit_indeces = find_indices(name_list, digits[0])  # Get indeces for first digit
+    second_digit_indeces = find_indices(name_list, digits[1])
+
+    # Get MFSCS for the given digits and speakers
+    mfscs_1_1 = y[first_digit_indeces[0]]
+    mfscs_1_2 = y[first_digit_indeces[1]]
+    mfscs_2_1 = y[second_digit_indeces[0]]
+    mfscs_2_2 = y[second_digit_indeces[1]]
+
+    if corr:
+        # if corr is True then get the correlation matrices
+        mfscs_1_1 = np.corrcoef(mfscs_1_1.T)
+        mfscs_1_2 = np.corrcoef(mfscs_1_2.T)
+        mfscs_2_1 = np.corrcoef(mfscs_2_1.T)
+        mfscs_2_2 = np.corrcoef(mfscs_2_2.T)
+
+    return mfscs_1_1, mfscs_1_2, mfscs_2_1, mfscs_2_2
+
+
+def plot_correlation_matrix(y1, y2, y3, y4, digits, method):
+    # Plotting the correlation matrices
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(8, 8))
+    # 1st MFCC
+    a1 = ax1.matshow(y1)
+    fig.colorbar(a1)
+    ax1.set_title(f'1st {method} of Digit {digits[0]}')
+
+    # 2nd MFCC
+    a2 = ax2.matshow(y2)
+    fig.colorbar(a2)
+    ax2.set_title(f'2nd {method} of Digit {digits[0]}')
+
+    # 1st MFCC
+    a3 = ax3.matshow(y3)
+    fig.colorbar(a3)
+    ax3.set_title(f'1st {method} of Digit {digits[1]}')
+
+    # 2nd MFCC
+    a4 = ax4.matshow(y4)
+    fig.colorbar(a4)
+    ax4.set_title(f'1st {method} of Digit {digits[0]}')
+
+    plt.show()
+
+
+def convert_str_int(labels):
+    '''Converts labels from strings to ints
+        :arg labels (list): contains labels in strings
+        '''
+    # first we will find the indeces for each digit
+    lab_dict = {
+        'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5, 'six': 6, 'seven': 7, 'eight': 8, 'nine': 9
+    }
+    for key in lab_dict.keys():
+        indeces = find_indices(labels, key)
+        for index in indeces:
+            labels[index] = lab_dict[key]
+
+    return labels
+
+
+def features_to_df(feature1, feature2, feature3, labels, speakers):
+    '''Calculates mean and variance for each feature given and creates a df with all the features
+        :param
+            feature1 (np.ndarray)
+            feature2 (np.ndarray)
+            feature3 (np.ndarray)
+            labels (list)
+            speakers (list)
+        :return
+            df (pd.DataFrame)
+        '''
+
+    feats = []  # Store all the mean and var of all features
+    titles = []  # Store columnn names for the df
+    columns = len(feature1[0][0, :])
+    # For MFCC
+    for i in range(columns):
+        titles.append(f'mean_mfcc_{i + 1}')
+        titles.append(f'var_mfcc_{i + 1}')
+    # for delta
+    for i in range(columns):
+        titles.append(f'mean_delta1_{i + 1}')
+        titles.append(f'var_delta1_{i + 1}')
+    # for delta-deltas
+    for i in range(columns):
+        titles.append(f'mean_delta2_{i + 1}')
+        titles.append(f'var_delta2_{i + 1}')
+
+    df = pd.DataFrame()  # Create empty dataframe to store the means and vars
+    k = 0
+    for j in range(columns):  # for mfccs
+        df[titles[k]] = [np.mean(feature1[i][:, j]) for i in range(len(feature1))]
+        df[titles[k + 1]] = [np.var(feature1[i][:, j]) for i in range(len(feature1))]
+        k += 2
+
+    for j in range(columns):  # for delta
+        df[titles[k]] = [np.mean(feature2[i][:, j]) for i in range(len(feature2))]
+        df[titles[k + 1]] = [np.var(feature2[i][:, j]) for i in range(len(feature2))]
+        k += 2
+
+    for j in range(columns):  # for delta-deltas
+        df[titles[k]] = [np.mean(feature3[i][:, j]) for i in range(len(feature3))]
+        df[titles[k + 1]] = [np.var(feature3[i][:, j]) for i in range(len(feature3))]
+        k += 2
+
+    df['speaker'] = speakers
+    # for the class column to avoid having string values we will now convert every string to the corresponding digit
+    # if all(isinstance(labels, int) for item in labels): #Uncomment if you want to first check if labels are ints already
+    #     df['class'] = labels
+
+    labels = convert_str_int(labels)  # Comment if labels are already ints
+    df['class'] = labels
+
+    return df
+
+
+def plot_scatter(df, feat1, feat2, labels, xlabel=None, ylabel=None, method=None, title=None):
+    """Plots scatter plot for 2 specified features
+            Args:
+                df (pd.DataFrame)
+                feat1 (str): name of feature 1
+                feat2 (str): name of feature 2
+                labels (str): name of column with the labels
+                xlabel (str)
+                ylabel (str)
+                method (str)
+               """
+    fig, ax = plt.subplots()
+
+    # scatter = ax.scatter(feat1, feat2, c=labels, marker=markers)
+    scatter = sns.scatterplot(data=df, x=feat1, y=feat2, hue=labels, style=labels, legend='full')
+    # add title, xlabel and ylabel
+    if title == None:
+        scatter.set(title=f'Scatterplot of the mean and Variance of 1st {method}')
+    else:
+        scatter.set(title=title)
+    scatter.set(xlabel=xlabel)
+    scatter.set(ylabel=ylabel)
+
+    plt.show()
+
+
+def evaluate_classifier(clf, X, y, folds=5):
+    """Returns the 5-fold accuracy for classifier clf on X and y
+    Args:
+        clf (sklearn.base.BaseEstimator): classifier
+        X (np.ndarray): Digits data (nsamples x nfeatures)
+        y (np.ndarray): Labels for dataset (nsamples)
+        folds (int): the number of folds
+    Returns:
+        (float): The 5-fold classification mean score and std(accuracy)
+    """
+    results = cross_val_score(estimator=clf, X=X, y=y, cv=folds)
+    accur = results.mean()
+    accur_std = results.std()
+    return accur, accur_std
+
+
+def make_opt_mod(pipe, X_train, y_train, X_test, y_test, mod_name, mod_dict={}):
+  '''Fits, evaluates and stores the model and its scores to a dictionary and prints the scores
+      Args:
+            pipe: pipeline for the optimal model
+            mod_name(str): Model name
+            mod_dict(dictionary): a dictionary to store the model
+      Returns:
+            mod_dict(dictionary): updated dictionary
+            '''
+  start_time = time.time() # train counter
+  mod = pipe.fit(X_train, y_train)
+  stop_time = time.time()
+  print(f'Fit time for {mod_name} model is: {stop_time - start_time: .2f} seconds.')
+  start_time = time.time() # test counter
+  preds = mod.predict(X_test)
+  stop_time = time.time()
+  print(f'Predict time for {mod_name} model is: {stop_time - start_time: .2f} seconds.')
+  # Store to the opt mod dictionary
+  mod_dict[mod_name] = [mod.score(X_test, y_test) , f1_score(y_test, mod.predict(X_test), average='weighted'), cross_val_score(mod, X_train, y_train, cv=10), preds]
+  print(f'{mod_name} has {mod_dict[mod_name][0] * 100: .3f}% accuracy and {mod_dict[mod_name][1] * 100: .3f}% F1 score and {mod_dict[mod_name][2].mean() * 100: .3f}% 10 fold-cv.')
+
+  return mod_dict
