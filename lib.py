@@ -10,6 +10,10 @@ from sklearn.model_selection import cross_val_score
 from tqdm import tqdm
 from matplotlib import pyplot as plt
 import time
+import torch
+import torch.nn as nn
+import torchvision
+import torchvision.transforms as transforms
 
 
 def parse_free_digits(directory):
@@ -324,7 +328,7 @@ def evaluate_classifier(clf, X, y, folds=5):
 
 
 def make_opt_mod(pipe, X_train, y_train, X_test, y_test, mod_name, mod_dict={}):
-  '''Fits, evaluates and stores the model and its scores to a dictionary and prints the scores
+    '''Fits, evaluates and stores the model and its scores to a dictionary and prints the scores
       Args:
             pipe: pipeline for the optimal model
             mod_name(str): Model name
@@ -332,16 +336,54 @@ def make_opt_mod(pipe, X_train, y_train, X_test, y_test, mod_name, mod_dict={}):
       Returns:
             mod_dict(dictionary): updated dictionary
             '''
-  start_time = time.time() # train counter
-  mod = pipe.fit(X_train, y_train)
-  stop_time = time.time()
-  print(f'Fit time for {mod_name} model is: {stop_time - start_time: .2f} seconds.')
-  start_time = time.time() # test counter
-  preds = mod.predict(X_test)
-  stop_time = time.time()
-  print(f'Predict time for {mod_name} model is: {stop_time - start_time: .2f} seconds.')
-  # Store to the opt mod dictionary
-  mod_dict[mod_name] = [mod.score(X_test, y_test) , f1_score(y_test, mod.predict(X_test), average='weighted'), cross_val_score(mod, X_train, y_train, cv=10), preds]
-  print(f'{mod_name} has {mod_dict[mod_name][0] * 100: .3f}% accuracy and {mod_dict[mod_name][1] * 100: .3f}% F1 score and {mod_dict[mod_name][2].mean() * 100: .3f}% 10 fold-cv.')
+    start_time = time.time()  # train counter
+    mod = pipe.fit(X_train, y_train)
+    stop_time = time.time()
+    print(f'Fit time for {mod_name} model is: {stop_time - start_time: .2f} seconds.')
+    start_time = time.time()  # test counter
+    preds = mod.predict(X_test)
+    stop_time = time.time()
+    print(f'Predict time for {mod_name} model is: {stop_time - start_time: .2f} seconds.')
+    # Store to the opt mod dictionary
+    mod_dict[mod_name] = [mod.score(X_test, y_test), f1_score(y_test, mod.predict(X_test), average='weighted'),
+                          cross_val_score(mod, X_train, y_train, cv=10), preds]
+    print(
+        f'{mod_name} has {mod_dict[mod_name][0] * 100: .3f}% accuracy and {mod_dict[mod_name][1] * 100: .3f}% F1 score and {mod_dict[mod_name][2].mean() * 100: .3f}% 10 fold-cv.')
 
-  return mod_dict
+    return mod_dict
+
+
+class RNN(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, num_classes):
+        super(RNN, self).__init__()
+        self.num_layers = num_layers
+        self.hidden_size = hidden_size
+        self.rnn = nn.RNN(input_size, hidden_size, num_layers, batch_first=True)  # batch_first means x needs to be: (
+        # batch_size, seq, input_size)
+        self.fc = nn.Linear(hidden_size, num_classes)
+
+    def forward(self, x):
+        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
+
+        out, _ = self.rnn(x, h0)
+        out = out[:, -1, :]
+        out = self.fc(out)
+        return out
+
+
+def train_model(model, train_loader, val_loader, optimizer, criterion, n_epochs=100, batch_size=32, n_features=1):
+    # Train the model
+    n_total_steps = len(train_loader)
+    for epoch in range(n_epochs):
+        for i, (x_batch, y_batch) in enumerate(train_loader):
+            x_batch = x_batch.view([batch_size, -1, n_features])
+            y_batch = y_batch
+            # Forward pass
+            loss = criterion(x_batch, y_batch)
+            # Backward and optimize
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            if (i + 1) % 100 == 0:
+                print(f'Epoch [{epoch + 1}/{n_epochs}], Step [{i + 1}/{n_total_steps}], Loss: {loss.item():.4f}')
