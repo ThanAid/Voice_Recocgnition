@@ -348,7 +348,7 @@ def make_opt_mod(pipe, X_train, y_train, X_test, y_test, mod_name, mod_dict={}):
     mod_dict[mod_name] = [mod.score(X_test, y_test), f1_score(y_test, mod.predict(X_test), average='weighted'),
                           cross_val_score(mod, X_train, y_train, cv=10), preds]
     print(
-        f'{mod_name} has {mod_dict[mod_name][0] * 100: .3f}% accuracy and {mod_dict[mod_name][1] * 100: .3f}% F1 score and {mod_dict[mod_name][2].mean() * 100: .3f}% 10 fold-cv.')
+        f'{mod_name} has {mod_dict[mod_name][0] * 100: .3f}% accuracy and {mod_dict[mod_name][1] * 100: .3f}% F1 score and {mod_dict[mod_name][2].mean() * 100: .3f}% +- {mod_dict[mod_name][2].std() * 100: .3f}% 10 fold-cv.')
 
     return mod_dict
 
@@ -459,20 +459,21 @@ def train_model(model, train_loader, optimizer, criterion, n_epochs=100, batch_s
             # Update parameters
             optimizer.step()
 
-        if (epoch + 1) % 10 == 0:
+        if (epoch + 1) % 5 == 0:
             print(f'Epoch [{epoch + 1}/{n_epochs}], Step [{i + 1}/{n_total_steps}], Loss: {loss.item():.4f}')
     return model
 
 
-def predict_model(model, test_loader, batch_size, n_features):
+def predict_model(model, test_loader, batch_size, n_features, criteriion):
     # Make predictions using models
     preds = []
     true_values = []
+    accu = 0
     for x_batch, y_batch in test_loader:
         x_batch = x_batch.view([batch_size, -1, n_features])
 
         pred = (model(x_batch))
         preds.append(pred.detach().numpy())  # predict
         true_values.append(y_batch.detach().numpy())
-
-    return preds, true_values
+        accu += criteriion(pred, y_batch)
+    return preds, true_values, (1-accu)

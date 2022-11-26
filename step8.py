@@ -75,24 +75,34 @@ optimizer = torch.optim.Adam(gru.parameters(), lr=0.01)
 gru = lib.train_model(gru, train_loader, optimizer, criterion, n_epochs=20, batch_size=batch_size, n_features=X_train.shape[1])
 
 # Make predictions using the RNN model
-preds_r, true_values = lib.predict_model(rnn, test_loader, batch_size=1, n_features=X_train.shape[1])
+preds_r, true_values, accu_r = lib.predict_model(rnn, test_loader, batch_size=1, n_features=X_train.shape[1], criteriion=criterion)
 # Make predictions using the RNN LSTM model
-preds_l, _ = lib.predict_model(lstm, test_loader, batch_size=1, n_features=X_train.shape[1])
+preds_l, _, accu_l = lib.predict_model(lstm, test_loader, batch_size=1, n_features=X_train.shape[1], criteriion=criterion)
 # Make predictions using the RNN GRU model
-preds_g, _ = lib.predict_model(gru, test_loader, batch_size=1, n_features=X_train.shape[1])
+preds_g, _, accu_g = lib.predict_model(gru, test_loader, batch_size=1, n_features=X_train.shape[1], criteriion=criterion)
 
+# Printing accuracy for each model based on MSE error
+print('\n--------------------Accuracy on test data----------------------')
+print(f'Accuracy of Vanilla RNN model on test data: {accu_r.item() * 100: .3f}%.')
+print(f'Accuracy of LSTM RNN model on test data: {accu_l.item() * 100: .3f}%.')
+print(f'Accuracy of GRU RNN model on test data: {accu_g.item() * 100: .3f}%.')
+
+print('\n--------------------Scatter plots----------------------')
 # Scatter predictions and true values for each model
-fig, ax = plt.subplots(1, 3, figsize=(16, 8))
-ax[0].scatter(np.linspace(0, 1, 10), preds_r[1])
-ax[0].scatter(np.linspace(0, 1, 10), true_values[1])
+fig, ax = plt.subplots(1, 3, figsize=(18, 8))
+ax[0].scatter(np.linspace(0, 1, 10), preds_r[1], label='Prediction')
+ax[0].scatter(np.linspace(0, 1, 10), true_values[1], label='True Value')
 ax[0].set_title('Vanilla RNN')
+ax[0].legend()
 
-ax[1].scatter(np.linspace(0, 1, 10), preds_l[5])
-ax[1].scatter(np.linspace(0, 1, 10), true_values[5])
+ax[1].scatter(np.linspace(0, 1, 10), preds_l[5], label='Prediction')
+ax[1].scatter(np.linspace(0, 1, 10), true_values[5], label='True Value')
 ax[1].set_title('LSTM RNN')
+ax[1].legend()
 
-ax[2].scatter(np.linspace(0, 1, 10), preds_g[69])
-ax[2].scatter(np.linspace(0, 1, 10), true_values[69])
+ax[2].scatter(np.linspace(0, 1, 10), preds_g[69], label='Prediction')
+ax[2].scatter(np.linspace(0, 1, 10), true_values[69], label='True Value')
 ax[2].set_title('GRU RNN')
-fig.suptitle('Predictions and True values (Normalized)')
+ax[2].legend()
+fig.suptitle('Predictions and True values (Normalized)', fontsize=18)
 plt.show()
