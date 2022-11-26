@@ -354,36 +354,125 @@ def make_opt_mod(pipe, X_train, y_train, X_test, y_test, mod_name, mod_dict={}):
 
 
 class RNN(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, num_classes):
+    def __init__(self, input_size, output_size, hidden_dim, n_layers):
         super(RNN, self).__init__()
-        self.num_layers = num_layers
-        self.hidden_size = hidden_size
-        self.rnn = nn.RNN(input_size, hidden_size, num_layers, batch_first=True)  # batch_first means x needs to be: (
+
+        # Number of hidden layers
+        self.n_layers = n_layers
+        # Number of hidden dimensions
+        self.hidden_dim = hidden_dim
+        # RNN
+        self.rnn = nn.RNN(input_size, hidden_dim, n_layers, batch_first=True)  # batch_first means x needs to be: (
         # batch_size, seq, input_size)
-        self.fc = nn.Linear(hidden_size, num_classes)
+        # last, fully-connected layer
+        self.fc = nn.Linear(hidden_dim, output_size)
 
     def forward(self, x):
-        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
+        # x (batch_size, seq_length, input_size)
+        # hidden (n_layers, batch_size, hidden_dim)
+        # out (batch_size, time_step, hidden_size)
+        h0 = torch.zeros(self.n_layers, x.size(0), self.hidden_dim)
 
+        # get RNN outputs
         out, _ = self.rnn(x, h0)
         out = out[:, -1, :]
         out = self.fc(out)
+
         return out
 
 
-def train_model(model, train_loader, val_loader, optimizer, criterion, n_epochs=100, batch_size=32, n_features=1):
+class RNN_GRU(nn.Module):
+    def __init__(self, input_size, output_size, hidden_dim, n_layers):
+        super(RNN_GRU, self).__init__()
+
+        # Number of hidden layers
+        self.n_layers = n_layers
+        # Number of hidden dimensions
+        self.hidden_dim = hidden_dim
+        # RNN
+        self.gru = nn.GRU(input_size, hidden_dim, n_layers, batch_first=True)  # batch_first means x needs to be: (
+        # batch_size, seq, input_size)
+        # last, fully-connected layer
+        self.fc = nn.Linear(hidden_dim, output_size)
+
+    def forward(self, x):
+        # x (batch_size, seq_length, input_size)
+        # hidden (n_layers, batch_size, hidden_dim)
+        # out (batch_size, time_step, hidden_size)
+        h0 = torch.zeros(self.n_layers, x.size(0), self.hidden_dim)
+
+        # get RNN outputs
+        out, _ = self.gru(x, h0)
+        out = out[:, -1, :]
+        out = self.fc(out)
+
+        return out
+
+
+class RNN_LSTM(nn.Module):
+    def __init__(self, input_size, output_size, hidden_dim, n_layers):
+        super(RNN_LSTM, self).__init__()
+
+        # Number of hidden layers
+        self.n_layers = n_layers
+        # Number of hidden dimensions
+        self.hidden_dim = hidden_dim
+        # RNN
+        self.lstm = nn.LSTM(input_size, hidden_dim, n_layers, batch_first=True)  # batch_first means x needs to be: (
+        # batch_size, seq, input_size)
+        # last, fully-connected layer
+        self.fc = nn.Linear(hidden_dim, output_size)
+
+    def forward(self, x):
+        # x (batch_size, seq_length, input_size)
+        # hidden (n_layers, batch_size, hidden_dim)
+        # out (batch_size, time_step, hidden_size)
+        h0 = torch.zeros(self.n_layers, x.size(0), self.hidden_dim)
+        # Initial cell state (zeroes)
+        c0 = torch.zeros(self.n_layers, x.size(0), self.hidden_dim)
+
+        # get RNN outputs
+        out, (_, __) = self.lstm(x, (h0, c0))
+        out = out[:, -1, :]
+        out = self.fc(out)
+
+        return out
+
+
+def train_model(model, train_loader, optimizer, criterion, n_epochs=100, batch_size=32, n_features=1):
     # Train the model
     n_total_steps = len(train_loader)
     for epoch in range(n_epochs):
         for i, (x_batch, y_batch) in enumerate(train_loader):
-            x_batch = x_batch.view([batch_size, -1, n_features])
-            y_batch = y_batch
-            # Forward pass
-            loss = criterion(x_batch, y_batch)
-            # Backward and optimize
+            x_batch = x_batch.view(batch_size, -1, n_features)
+            # Clear gradients
             optimizer.zero_grad()
+
+            prediction = model(x_batch)
+            # Forward pass
+
+            loss = criterion(prediction, y_batch)
+            # Backward and optimize
+
+            # Calculating gradients
             loss.backward()
+            # Update parameters
             optimizer.step()
 
-            if (i + 1) % 100 == 0:
-                print(f'Epoch [{epoch + 1}/{n_epochs}], Step [{i + 1}/{n_total_steps}], Loss: {loss.item():.4f}')
+        if (epoch + 1) % 10 == 0:
+            print(f'Epoch [{epoch + 1}/{n_epochs}], Step [{i + 1}/{n_total_steps}], Loss: {loss.item():.4f}')
+    return model
+
+
+def predict_model(model, test_loader, batch_size, n_features):
+    # Make predictions using models
+    preds = []
+    true_values = []
+    for x_batch, y_batch in test_loader:
+        x_batch = x_batch.view([batch_size, -1, n_features])
+
+        pred = (model(x_batch))
+        preds.append(pred.detach().numpy())  # predict
+        true_values.append(y_batch.detach().numpy())
+
+    return preds, true_values
