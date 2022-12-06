@@ -1,5 +1,5 @@
-import itertools
 import os
+from datetime import datetime
 from glob import glob
 import librosa
 import re
@@ -8,13 +8,14 @@ import pandas as pd
 import seaborn as sns
 from sklearn.metrics import f1_score
 from sklearn.model_selection import cross_val_score
+from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 from tqdm import tqdm
 from matplotlib import pyplot as plt
 import time
 import torch
 import torch.nn as nn
-import torchvision
-import torchvision.transforms as transforms
+from statistics import mean
+from pytorchtools import EarlyStopping
 
 
 def parse_free_digits(directory):
@@ -428,24 +429,25 @@ class RNN_LSTM(nn.Module):
         # x (batch_size, seq_length, input_size)
         # hidden (n_layers, batch_size, hidden_dim)
         # out (batch_size, time_step, hidden_size)
-        h0 = torch.zeros(self.n_layers, x.size(0), self.hidden_dim)
+
+        h0 = torch.zeros(self.n_layers, x.size(0), self.hidden_dim).requires_grad_()
         # Initial cell state (zeroes)
-        c0 = torch.zeros(self.n_layers, x.size(0), self.hidden_dim)
+        c0 = torch.zeros(self.n_layers, x.size(0), self.hidden_dim).requires_grad_()
 
         # get RNN outputs
-        out, (_, __) = self.lstm(x, (h0, c0))
+        out, (_, __) = self.lstm(x, (h0.detach(), c0.detach()))
         out = out[:, -1, :]
         out = self.fc(out)
 
         return out
 
 
-def train_model(model, train_loader, optimizer, criterion, n_epochs=100, batch_size=32, n_features=1):
+def train_model(model, train_loader, optimizer, criterion, n_epochs=100, batch_size=32, n_features=1, val=None):
     # Train the model
     n_total_steps = len(train_loader)
     for epoch in range(n_epochs):
         for i, (x_batch, y_batch) in enumerate(train_loader):
-            x_batch = x_batch.view(batch_size, -1, n_features)
+            x_batch = x_batch.view([batch_size, -1, n_features])
             # Clear gradients
             optimizer.zero_grad()
 
@@ -462,6 +464,22 @@ def train_model(model, train_loader, optimizer, criterion, n_epochs=100, batch_s
 
         if (epoch + 1) % 5 == 0:
             print(f'Epoch [{epoch + 1}/{n_epochs}], Step [{i + 1}/{n_total_steps}], Loss: {loss.item():.4f}')
+
+        if val is not None:
+            model.eval()  # turns off batchnorm/dropout ...
+            acc = 0
+            n_samples = 0
+            with torch.no_grad():  # no gradients required!! eval mode, speeds up computation
+                for i, data in enumerate(val):
+                    X_batch, y_batch = data  # test data and labels
+                    X_batch = X_batch.view([batch_size, -1, n_features])
+
+                    preds = model(X_batch)  # get net's predictions
+                    loss = criterion(preds, y_batch)
+
+            if epoch % 1 == 0:
+                print(f'Epoch [{epoch + 1}/{n_epochs}], Loss (on validation): {loss.item():.4f}')
+
     return model
 
 
@@ -505,3 +523,153 @@ def arrange_digits(X, y):
     return X_final, seqlen
 
 
+class LSTM(nn.Module):
+    def __init__(self, input_size, output_size, hidden_dim, n_layers, dropout=0, bidirectional=False):
+        super(LSTM, self).__init__()
+        self.bidirectional = bidirectional
+        self.feature_size = hidden_dim * 2 if self.bidirectional else hidden_dim
+        # Dropout probability
+        self.dropout = dropout
+        # Number of hidden layers
+        self.n_layers = n_layers
+        # Number of hidden dimensions
+        self.hidden_dim = hidden_dim
+        # RNN
+        self.lstm = nn.LSTM(input_size, hidden_dim, n_layers, batch_first=True,
+                            bidirectional=bidirectional, dropout=dropout)  # batch_first means x needs to be: (
+        # batch_size, seq, input_size)
+        # last, fully-connected layer
+        self.fc = nn.Linear(self.feature_size, output_size)
+
+    def forward(self, x):
+        d_layers = self.n_layers * 2 if self.bidirectional else self.n_layers
+        # x (batch_size, seq_length, input_size)
+        # hidden (n_layers, batch_size, hidden_dim)
+        # out (batch_size, time_step, hidden_size)
+        # Unpacking x (packed in train)
+        seq_unpacked, lens_unpacked = pad_packed_sequence(x, batch_first=True)
+
+        h0 = torch.zeros(d_layers, len(lens_unpacked), self.hidden_dim).requires_grad_()
+        # Initial cell state (zeroes)
+        c0 = torch.zeros(d_layers, len(lens_unpacked), self.hidden_dim).requires_grad_()
+
+        # get RNN outputs
+        out_packed, (_, __) = self.lstm(x, (h0.detach(), c0.detach()))
+        # Unpacking out
+        out, l_unpacked = pad_packed_sequence(out_packed, batch_first=True)
+
+        out = out[:, -1, :]
+        out = self.fc(out)
+
+        return out
+
+
+def train_model_lstm(model, train_loader, lengths_train, optimizer, criterion, n_epochs=100, batch_size=32,
+                     n_features=1, val=None, lengths_val=None, patience=None):
+    ''' Train the model
+    '''
+
+    # Check if early stop is enabled:
+    if patience is not None:
+        # Initialize EarlyStopping
+        early_stopping = EarlyStopping(patience=patience)
+
+    n_total_steps = len(train_loader)
+    loss_train = []  # store the mean loss for each epoch of training
+    loss_val = []  # store the mean loss for each epoch of validation
+    for epoch in range(n_epochs):
+        loss_epoch = []
+        for i, (x_batch, y_batch) in enumerate(train_loader):
+            x_batch = x_batch.view(batch_size, -1, n_features)
+            # Packing using pack padded sequence
+            x_batch = pack_padded_sequence(x_batch, lengths_train[i], batch_first=True)
+            # Clear gradients
+            optimizer.zero_grad()
+
+            prediction = model(x_batch)
+
+            # Forward pass
+            loss = criterion(prediction, y_batch)
+
+            # Backward and optimize
+            loss.backward()
+            # Update parameters
+            optimizer.step()
+
+            loss_epoch.append(loss.item())
+        loss_train.append(mean(loss_epoch))
+        # if (epoch + 1) % 5 == 0:
+        if epoch % 1 == 0:
+            print(f'Epoch [{epoch + 1}/{n_epochs}], Loss: {mean(loss_epoch):.4f}')
+
+        if val is not None:
+            with torch.no_grad():  # no gradients required!! eval mode, speeds up computation
+                loss_val_epoch = []
+                for j, data in enumerate(val):
+                    X_val, y_val = data  # test data and labels
+                    X_val = X_val.view([batch_size, -1, n_features])
+                    # Packing using pack padded sequence
+                    X_val = pack_padded_sequence(X_val, lengths_val[j], batch_first=True)
+
+                    model.eval()
+                    preds = model(X_val)  # get net's predictions
+                    loss = criterion(preds, y_val)
+
+                    loss_val_epoch.append(loss.item())
+                loss_val.append(mean(loss_val_epoch))
+            if epoch % 1 == 0:
+                print(f'Epoch [{epoch + 1}/{n_epochs}], Loss (on validation): {mean(loss_val_epoch):.4f}')
+
+            if patience is not None:
+                # Check if our patience is over (validation loss increased for given steps)
+                early_stopping(np.array(mean(loss_val_epoch)), model)
+
+                if early_stopping.early_stop:
+                    print('Out of Patience. Early stopping... ')
+                    break
+
+        # checks if we will go back to the checkpoint
+        if patience != -1 and early_stopping.early_stop == True:
+            model.load_state_dict(torch.load('checkpoint.pth'))
+
+    plt.plot([i + 1 for i in range(epoch+1)], loss_train, label='Training Loss')
+    plt.plot([i + 1 for i in range(epoch+1)], loss_val, label='Validation Loss')
+    plt.legend(loc='best')
+    plt.ylabel('Mean Loss')
+    plt.xlabel('Epoch')
+    plt.title("Loss per Epoch")
+    plt.grid()
+    plt.show()
+
+    return model
+
+
+def predict_model_lstm(model, test_loader, batch_size, n_features, criteriion):
+    # Make predictions using models
+    preds = []
+    true_values = []
+    accu = 0
+    for x_batch, y_batch in test_loader:
+        x_batch = x_batch.view([batch_size, -1, n_features])
+
+        pred = (model(x_batch))
+        preds.append(pred.detach().numpy())  # predict
+        true_values.append(y_batch.detach().numpy())
+        accu += criteriion(pred, y_batch)
+    return preds, true_values, (1 - accu)
+
+
+def length_paddable(length, batch_size):
+    """ Makes Tensor usable for pack padded sequence
+    :param length: Tensor
+    :param batch_size: int
+    :return: paddable List of sequence lengths of each batch element (must be on the CPU if provided as a tensor).
+    """
+    paddable = []
+    for i in range(len(length)):
+        _ = []
+        for j in range(batch_size):
+            _.append(length[i])
+        paddable.append(_)
+
+    return paddable
