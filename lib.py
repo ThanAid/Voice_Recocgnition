@@ -1,3 +1,4 @@
+import itertools
 import os
 from glob import glob
 import librosa
@@ -476,4 +477,31 @@ def predict_model(model, test_loader, batch_size, n_features, criteriion):
         preds.append(pred.detach().numpy())  # predict
         true_values.append(y_batch.detach().numpy())
         accu += criteriion(pred, y_batch)
-    return preds, true_values, (1-accu)
+    return preds, true_values, (1 - accu)
+
+
+def arrange_digits(X, y):
+    # splits data based on the unique labels on y
+    n_labels = np.unique(y)  # Find all labels
+
+    arranged = []
+    X_final = []
+    seqlen = []
+
+    for i in n_labels:
+        _ = []
+        index = find_indices(y, i)  # find indexes for that digit
+        arranged.append([X[j] for j in index])  # keep values of those indexes
+
+        X_arranged = arranged[i][0]  # Initialization of the first sample for that digit
+        _.append(len(X_arranged))
+        for j in range(1, len(arranged[i])):
+            X_arranged = np.concatenate((X_arranged, arranged[i][j]))  # concatenate all samples for that digit
+            _.append(len(arranged[i][j]))
+
+        seqlen.append(_)
+        X_final.append(X_arranged)
+
+    return X_final, seqlen
+
+
