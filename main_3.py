@@ -98,7 +98,7 @@ lstm = lib.train_model_lstm(lstm, train_loader, lengths_train, optimizer, criter
 # Creating LSTM bidirectional
 lstm_bi = lib.LSTM(input_size=13, output_size=10, hidden_dim=60, n_layers=1, dropout=0.2, bidirectional=True)
 
-print('---------------Training lstm Bidirectional----------------')
+print('\n---------------Training lstm Bidirectional----------------')
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(lstm_bi.parameters(), lr=0.001, weight_decay=1e-5)  # weight_decay>0 for L2 regularization
 lstm_bi = lib.train_model_lstm(lstm_bi, train_loader, lengths_train, optimizer, criterion, n_epochs=40,
