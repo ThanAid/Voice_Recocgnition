@@ -49,7 +49,7 @@ for sample in X_test_t:
     lengths_test.append(sample.size(dim=0))
 
 # sorting and getting indexes
-train_ind = np.argsort((np.array(lengths_train) * -1)).tolist()
+train_ind = np.argsort((np.array(lengths_train) * -1)).tolist()  # Multiply by -1 for Decreasing order
 val_ind = np.argsort(np.array(lengths_val) * -1).tolist()
 test_ind = np.argsort(np.array(lengths_test) * -1).tolist()
 
@@ -92,7 +92,7 @@ print('--------------------Training lstm----------------------')
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(lstm.parameters(), lr=0.001, weight_decay=1e-5)  # weight_decay>0 for L2 regularization
 lstm = lib.train_model_lstm(lstm, train_loader, lengths_train, optimizer, criterion, n_epochs=40, batch_size=batch_size,
-                            n_features=13, val=val_loader, lengths_val=lengths_val, patience=4)
+                            n_features=13, val=val_loader, lengths_val=lengths_val, patience=1)
 # preds, true_values, los = lib.predict_model_lstm(lstm, test_loader, 1, 13, criterion)
 
 # Creating LSTM bidirectional
@@ -101,7 +101,7 @@ lstm_bi = lib.LSTM(input_size=13, output_size=10, hidden_dim=60, n_layers=1, dro
 print('---------------Training lstm Bidirectional----------------')
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(lstm_bi.parameters(), lr=0.001, weight_decay=1e-5)  # weight_decay>0 for L2 regularization
-lstm_bi = lib.train_model_lstm(lstm_bi, train_loader, lengths_train, optimizer, criterion, n_epochs=2,
+lstm_bi = lib.train_model_lstm(lstm_bi, train_loader, lengths_train, optimizer, criterion, n_epochs=40,
                                batch_size=batch_size,
                                n_features=13, val=val_loader, lengths_val=lengths_val, patience=4)
 # preds, true_values, los = lib.predict_model_lstm(lstm, test_loader, 1, 13, criterion)

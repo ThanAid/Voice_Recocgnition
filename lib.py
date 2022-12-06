@@ -598,7 +598,7 @@ def train_model_lstm(model, train_loader, lengths_train, optimizer, criterion, n
 
             loss_epoch.append(loss.item())
         loss_train.append(mean(loss_epoch))
-        # if (epoch + 1) % 5 == 0:
+
         if epoch % 1 == 0:
             print(f'Epoch [{epoch + 1}/{n_epochs}], Loss: {mean(loss_epoch):.4f}')
 
@@ -629,16 +629,27 @@ def train_model_lstm(model, train_loader, lengths_train, optimizer, criterion, n
                     break
 
         # checks if we will go back to the checkpoint
-        if patience != -1 and early_stopping.early_stop == True:
-            model.load_state_dict(torch.load('checkpoint.pth'))
+    if patience != -1 and early_stopping.early_stop == True:
+        print('Loading model from checkpoint...')
+        model.load_state_dict(torch.load('checkpoint.pt'))
+        print('Checkpoint loaded.')
 
-    plt.plot([i + 1 for i in range(epoch+1)], loss_train, label='Training Loss')
-    plt.plot([i + 1 for i in range(epoch+1)], loss_val, label='Validation Loss')
-    plt.legend(loc='best')
-    plt.ylabel('Mean Loss')
-    plt.xlabel('Epoch')
-    plt.title("Loss per Epoch")
-    plt.grid()
+    # visualize the loss as the network trained
+    fig = plt.figure(figsize=(10, 8))
+    plt.plot(range(1, len(loss_train) + 1), loss_train, label='Training Loss')
+    plt.plot(range(1, len(loss_val) + 1), loss_val, label='Validation Loss')
+
+    # find position of lowest validation loss
+    minposs = loss_val.index(min(loss_val)) + 1
+    plt.axvline(minposs, linestyle='--', color='r', label='Early Stopping Checkpoint')
+
+    plt.xlabel('epochs')
+    plt.ylabel('loss')
+    plt.ylim(0, max(loss_val + loss_train))  # consistent scale
+    plt.xlim(0, len(loss_train) + 1)  # consistent scale
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
     plt.show()
 
     return model
