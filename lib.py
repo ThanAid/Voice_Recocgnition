@@ -605,13 +605,15 @@ def train_model_lstm(model, train_loader, lengths_train, optimizer, criterion, n
         if val is not None:
             with torch.no_grad():  # no gradients required!! eval mode, speeds up computation
                 loss_val_epoch = []
-                for j, data in enumerate(val):
-                    X_val, y_val = data  # test data and labels
-                    X_val = X_val.view([batch_size, -1, n_features])
+                # turn off the regularisation during evaluation
+                model.eval()
+                for j, (X_val, y_val) in enumerate(val):
+
+                    X_val = X_val.view(batch_size, -1, n_features)
                     # Packing using pack padded sequence
                     X_val = pack_padded_sequence(X_val, lengths_val[j], batch_first=True)
 
-                    model.eval()
+
                     preds = model(X_val)  # get net's predictions
                     loss = criterion(preds, y_val)
 
@@ -655,19 +657,26 @@ def train_model_lstm(model, train_loader, lengths_train, optimizer, criterion, n
     return model
 
 
-def predict_model_lstm(model, test_loader, batch_size, n_features, criteriion):
-    # Make predictions using models
+def predict_model_lstm(model, test_loader, lengths_test, batch_size, n_features, criteriion):
+    # Make predictions using model
     preds = []
     true_values = []
-    accu = 0
-    for x_batch, y_batch in test_loader:
-        x_batch = x_batch.view([batch_size, -1, n_features])
+    loss = 0
+    model.eval()  # prep model for evaluation
 
-        pred = (model(x_batch))
-        preds.append(pred.detach().numpy())  # predict
-        true_values.append(y_batch.detach().numpy())
-        accu += criteriion(pred, y_batch)
-    return preds, true_values, (1 - accu)
+    for i, (x_batch, y_batch) in enumerate(test_loader):
+        x_batch = x_batch.view([batch_size, -1, n_features])
+        # Packing using pack padded sequence
+        x_batch = pack_padded_sequence(x_batch, lengths_test[i], batch_first=True)
+        # Make predictions
+        pred = model(x_batch)
+        preds.append(np.argmax(pred.detach().numpy(), axis=1)[0])
+        true_values.append(y_batch.detach().numpy()[0])
+        loss += criteriion(pred, y_batch)
+
+    #Calculate Accuracy
+    accuracy = sum(np.array(preds) == np.array(true_values))/len(true_values)
+    return preds, true_values, accuracy
 
 
 def length_paddable(length, batch_size):
@@ -684,3 +693,5 @@ def length_paddable(length, batch_size):
         paddable.append(_)
 
     return paddable
+
+

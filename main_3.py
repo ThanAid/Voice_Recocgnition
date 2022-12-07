@@ -1,5 +1,7 @@
 import numpy as np
 import torch
+from sklearn import metrics
+from matplotlib import pyplot as plt
 from sklearn.model_selection import train_test_split
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import TensorDataset, DataLoader
@@ -30,7 +32,7 @@ print(np.asarray(np.unique(y_train, return_counts=True)).T)
 print('\ny validation:')
 print(np.asarray(np.unique(y_val, return_counts=True)).T)
 
-batch_size = 1  # Setting the batch size
+batch_size = 4  # Setting the batch size
 
 X_train_t = [torch.Tensor(X) for X in X_train]  # Convert to Tensor
 X_val_t = [torch.Tensor(X) for X in X_val]  # Convert to Tensor
@@ -85,23 +87,71 @@ lengths_train = lib.length_paddable(lengths_train, batch_size)
 lengths_val = lib.length_paddable(lengths_val, batch_size)
 lengths_test = lib.length_paddable(lengths_test, 1)
 
+# Choose the parameters
+n_epochs = 100
+patience = 7
+lr = 0.001
+weight_decay = 1e-5  # l2 regularization
+hidden_dim = 80
+n_layers = 1
+dropout = 0.2
+
 # LSTM Rnn model
-lstm = lib.LSTM(input_size=13, output_size=10, hidden_dim=60, n_layers=1, dropout=0.2, bidirectional=False)
+lstm = lib.LSTM(input_size=13, output_size=10, hidden_dim=hidden_dim, n_layers=n_layers, dropout=dropout,
+                bidirectional=False)
+
 
 print('--------------------Training lstm----------------------')
 criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(lstm.parameters(), lr=0.001, weight_decay=1e-5)  # weight_decay>0 for L2 regularization
-lstm = lib.train_model_lstm(lstm, train_loader, lengths_train, optimizer, criterion, n_epochs=40, batch_size=batch_size,
-                            n_features=13, val=val_loader, lengths_val=lengths_val, patience=1)
-# preds, true_values, los = lib.predict_model_lstm(lstm, test_loader, 1, 13, criterion)
+optimizer = torch.optim.Adam(lstm.parameters(), lr=lr, weight_decay=weight_decay)  # weight_decay>0 for L2 regularization
+# Train the model
+lstm = lib.train_model_lstm(lstm, train_loader, lengths_train, optimizer, criterion, n_epochs=n_epochs,
+                            batch_size=batch_size,
+                            n_features=13, val=val_loader, lengths_val=lengths_val, patience=patience)
+# Get predictions and accuracy
+preds, true_values, accu = lib.predict_model_lstm(lstm, test_loader, lengths_test, batch_size=1, n_features=13, criteriion=criterion)
+print(f'Accuracy on Test Data using lstm model is {accu * 100: .3f}%.')
+_, _, accu_val = lib.predict_model_lstm(lstm, val_loader, lengths_val, batch_size=batch_size, n_features=13, criteriion=criterion)
+print(f'Accuracy on Validation Data using lstm model is {accu_val * 100: .3f}%.')
+
 
 # Creating LSTM bidirectional
-lstm_bi = lib.LSTM(input_size=13, output_size=10, hidden_dim=60, n_layers=1, dropout=0.2, bidirectional=True)
+lstm_bi = lib.LSTM(input_size=13, output_size=10, hidden_dim=hidden_dim, n_layers=n_layers, dropout=dropout,
+                   bidirectional=True)
+
 
 print('\n---------------Training lstm Bidirectional----------------')
 criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(lstm_bi.parameters(), lr=0.001, weight_decay=1e-5)  # weight_decay>0 for L2 regularization
-lstm_bi = lib.train_model_lstm(lstm_bi, train_loader, lengths_train, optimizer, criterion, n_epochs=40,
+optimizer = torch.optim.Adam(lstm_bi.parameters(), lr=lr,
+                             weight_decay=weight_decay)  # weight_decay>0 for L2 regularization
+# Train the model
+lstm_bi = lib.train_model_lstm(lstm_bi, train_loader, lengths_train, optimizer, criterion, n_epochs=n_epochs,
                                batch_size=batch_size,
-                               n_features=13, val=val_loader, lengths_val=lengths_val, patience=4)
-# preds, true_values, los = lib.predict_model_lstm(lstm, test_loader, 1, 13, criterion)
+                               n_features=13, val=val_loader, lengths_val=lengths_val, patience=patience)
+# Get predictions and accuracy
+preds_bi, true_values_bi, accu_bi = lib.predict_model_lstm(lstm_bi, test_loader, lengths_test, batch_size=1, n_features=13,
+                                                           criteriion=criterion)
+print(f'Accuracy on Test Data using lstm Bidirectional model is {accu_bi * 100: .3f}%.')
+_, _, accu_val_b = lib.predict_model_lstm(lstm_bi, val_loader, lengths_val, batch_size, 13, criterion)
+print(f'Accuracy on Validation Data using lstm model is {accu_val_b * 100: .3f}%.')
+
+
+print('\n--------------------Plotting Confusion Matrix for lstm Models----------------------')
+# Plotting confusion matrices for test and validation data
+fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(8, 5))  # Set up the figure
+ax = ax.ravel()
+
+y = [true_values, true_values_bi]
+preds = [preds, preds_bi]
+titles = ['LSTM', 'Bidirectional LSTM']
+for i in range(2):
+    actual = y[i]
+    predicted = preds[i]  # get the prediction for each model (each loop)
+
+    confusion_matrix = metrics.confusion_matrix(np.array(actual), np.array(predicted))
+    cm_display = metrics.ConfusionMatrixDisplay(confusion_matrix=confusion_matrix)
+    cm_display.plot(ax=ax[i])
+    ax[i].set_title(titles[i])
+
+fig.suptitle('LSTM prediction on Test Data')
+plt.show()
