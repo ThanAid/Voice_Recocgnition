@@ -1,6 +1,8 @@
 # Voice Recognition Project using Hidden Markovian Models And Recursive Neural Networks
 Voice Recognition Project by Aidinis Athanasios, Charalampos Kastoris.
 ----------------------------------------------------------------------
+The purpose is to implement a speech processing and recognition system for isolated word recognition. In the first step, appropriate acoustic features are extracted from voice data using Python packages, which are then analyzed and mapped to understand and extract useful information. In essence, these features are a collection of cepstral coefficients that are obtained after the signals are examined using a specially created filter bank that was motivated by psychoacoustic studies.
+----------------------------------------------------------------------
 * For steps 1-7 run -> main.py
 * For step 8 run -> step8.py
 * or steps 9-13 run -> main_2.py
